@@ -1,0 +1,6 @@
+[package]
+name = "error-chain-mini"
+version = "0.1.0"
+authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
+
+[dependencies]
