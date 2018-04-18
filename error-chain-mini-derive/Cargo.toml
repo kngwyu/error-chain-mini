@@ -1,0 +1,19 @@
+[package]
+name = "error-chain-mini-derive"
+version = "0.0.1"
+authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
+description = "derives for error-chain-mini"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kngwyu/error-chain-mini"
+homepage = "https://github.com/kngwyu/error-chain-mini"
+
+[dependencies]
+syn = "0.13.1"
+quote = "0.5.1"
+synstructure = "0.8.1"
+
+[dev-dependencies.error-chain-mini]
+path = "../"
+
+[lib]
+proc-macro = true
