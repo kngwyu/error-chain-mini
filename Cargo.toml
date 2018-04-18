@@ -3,7 +3,8 @@ name = "error-chain-mini"
 version = "0.0.1"
 authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
 
-[dependencies]
+[dev-dependencies.error-chain-mini-derive]
+path = "error-chain-mini-derive"
 
 [workspace]
 members = ["error-chain-mini-derive"]
