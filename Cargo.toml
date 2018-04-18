@@ -1,6 +1,9 @@
 [package]
 name = "error-chain-mini"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
 
 [dependencies]
+
+[workspace]
+members = ["error-chain-mini-derive"]

@@ -61,19 +61,25 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// }
 /// # }
 /// ```
-pub trait ErrorKind: Debug + Sized {
+pub trait ErrorKind {
     fn short(&self) -> &str;
     fn detailed(&self) -> String {
         String::new()
     }
-    fn into_err(self) -> ChainedError<Self> {
+    fn into_err(self) -> ChainedError<Self>
+    where
+        Self: Sized,
+    {
         ChainedError {
             kind: self,
             context: vec![],
         }
     }
-    fn into_with<C: ErrorContext>(self, cxt: C) -> ChainedError<Self> {
-        let s = cxt.owned_context();
+    fn into_with<C: ErrorContext>(self, cxt: C) -> ChainedError<Self>
+    where
+        Self: Sized,
+    {
+        let s = cxt.context().to_owned();
         ChainedError {
             kind: self,
             context: vec![s],
@@ -86,9 +92,6 @@ pub trait ErrorKind: Debug + Sized {
 /// Expected usage is use string as context, like
 pub trait ErrorContext: Sized {
     fn context(&self) -> &str;
-    fn owned_context(&self) -> String {
-        self.context().to_owned()
-    }
 }
 
 impl<S: AsRef<str>> ErrorContext for S {
@@ -99,7 +102,6 @@ impl<S: AsRef<str>> ErrorContext for S {
 
 /// Chainable error type.
 
-#[derive(Debug)]
 pub struct ChainedError<T: ErrorKind> {
     kind: T,
     context: Vec<String>,
@@ -117,7 +119,13 @@ impl<T: ErrorKind + Clone> Clone for ChainedError<T> {
 unsafe impl<T: ErrorKind + Sync> Sync for ChainedError<T> {}
 unsafe impl<T: ErrorKind + Send> Send for ChainedError<T> {}
 
-impl<T: ErrorKind> Error for ChainedError<T> {
+impl<T: ErrorKind + Debug> Debug for ChainedError<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl<T: ErrorKind + Debug> Error for ChainedError<T> {
     fn description(&self) -> &str {
         self.kind.short()
     }
@@ -135,7 +143,7 @@ impl<T: ErrorKind> Display for ChainedError<T> {
 
 impl<T: ErrorKind> ChainedError<T> {
     fn chain<C: ErrorContext>(mut self, s: C) -> Self {
-        let s = s.owned_context();
+        let s = s.context().to_owned();
         self.context.push(s);
         self
     }
