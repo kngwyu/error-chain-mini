@@ -9,24 +9,26 @@ decl_derive!([ErrorKind, attributes(msg)] => error_kind_derive);
 
 fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
     let short_body = s.each_variant(|v| {
-        let msg = find_msg(&v.ast().attrs).expect("All variants must have msg attiribute.");
+        let msg = find_msg(&v.ast().attrs).expect("All variants must have #[msg(.. attiribute.");
         let metas = msg.nested;
         if metas.is_empty() {
             panic!("You have to implement `#[msg(short = \"your description\")]`");
         }
-        let mut res = None;
-        for meta in metas.iter() {
-            if let Some(tokens) = process_short(meta) {
-                if res.is_some() {
-                    panic!("Cannot have multiple `short = ` attributes")
-                }
-                res = Some(tokens);
+        let mut filterd = metas.iter().filter_map(process_short);
+        if let Some(tokens) = filterd.next() {
+            if filterd.next().is_some() {
+                panic!("Cannot implment short=.. multiple times");
             }
-        }
-        if let Some(tokens) = res {
             tokens
         } else {
             panic!("You have to implement `short = ..` attribute")
+        }
+    });
+    let detailed_body = s.each_variant(|v| {
+        if let Some(t) = process_detailed(v) {
+            t
+        } else {
+            quote!(String::new())
         }
     });
     s.bound_impl(
@@ -35,37 +37,97 @@ fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
             fn short(&self) -> &str {
                 match *self { #short_body }
             }
+            fn detailed(&self) -> String {
+                match *self { #detailed_body }
+            }
         },
     )
 }
 
+fn process_detailed(variant: &synstructure::VariantInfo) -> Option<quote::Tokens> {
+    let msg = find_msg(&variant.ast().attrs).unwrap();
+    let nested = msg.nested;
+    let mut iter = nested.iter().skip_while(|nested| match nested {
+        syn::NestedMeta::Meta(syn::Meta::NameValue(nameval)) => nameval.ident != "detailed",
+        _ => panic!("Invlaid Value"),
+    });
+    let detailed = iter.next()?;
+    let s = if let syn::NestedMeta::Meta(syn::Meta::NameValue(nameval)) = detailed {
+        if let syn::Lit::Str(ref lit) = nameval.lit {
+            lit.value()
+        } else {
+            panic!("Only string is allowed after detailed=")
+        }
+    } else {
+        unreachable!();
+    };
+    macro_rules! get_nth {
+        ($id: expr) => {{
+            let bi = variant.bindings().into_iter().nth($id);
+            if let Some(bi) = bi {
+                bi.binding
+            } else {
+                panic!("Invalid index {} for {:?}", $id, variant.prefix);
+            }
+        }};
+    }
+    let args = iter.take_while(|arg| {
+        if let syn::NestedMeta::Meta(syn::Meta::NameValue(_)) = arg {
+            false
+        } else {
+            true
+        }
+    }).map(|arg| match arg {
+        syn::NestedMeta::Literal(syn::Lit::Int(int)) => {
+            let idx = int.value() as usize;
+            let bi = get_nth!(idx);
+            quote!(#bi)
+        }
+        syn::NestedMeta::Meta(syn::Meta::Word(ident)) => {
+            if ident.as_ref().starts_with("_") {
+                if let Ok(idx) = ident.as_ref()[1..].parse::<usize>() {
+                    let bi = get_nth!(idx);
+                    return quote!(#bi);
+                }
+            }
+            if let Some(bi) = variant
+                .bindings()
+                .into_iter()
+                .find(|bi| bi.ast().ident.as_ref() == Some(ident))
+            {
+                let bi = bi.binding;
+                quote!(#bi)
+            } else {
+                panic!(
+                    "Invalid argument {} for {:?}",
+                    ident.as_ref(),
+                    variant.prefix
+                );
+            }
+        }
+        _ => panic!("Invalid argument to fail attribute!"),
+    });
+    Some(quote!(format!(#s #(, #args)*)))
+}
+
 fn process_short(nested: &syn::NestedMeta) -> Option<quote::Tokens> {
-    let res = match nested {
+    match nested {
         syn::NestedMeta::Meta(syn::Meta::NameValue(nameval)) => {
             if nameval.ident == "detailed" {
                 return None;
             }
             if nameval.ident != "short" {
-                panic!("only short=.. or detailed.. is allowed");
+                panic!("only short=.. or detailed=.. is allowed");
             }
             if let syn::Lit::Str(ref lit_str) = nameval.lit {
                 let val = lit_str.value();
-                quote!(#val)
+                Some(quote!(#val))
             } else {
-                panic!("Oly string literal is allowed.")
+                panic!("Oly string literal is allowed after short")
             }
         }
-        syn::NestedMeta::Literal(lit) => {
-            if let syn::Lit::Str(lit_str) = lit {
-                let val = lit_str.value();
-                quote!(#val)
-            } else {
-                panic!("Oly string literal is allowed.")
-            }
-        }
-        _ => panic!("you have to write like #[msg(\"your description\")]"),
-    };
-    Some(res)
+        _ => None,
+    }
 }
 
 fn find_msg(attrs: &[syn::Attribute]) -> Option<syn::MetaList> {
@@ -83,24 +145,3 @@ fn find_msg(attrs: &[syn::Attribute]) -> Option<syn::MetaList> {
     }
     res
 }
-
-// #[cfg(test)]
-// mod codegen_test {
-//     use super::*;
-//     #[test]
-//     fn short_only_enum() {
-//         test_derive! {
-//             error_kind_derive {
-//                 enum MyError {
-//                     #[msg(short = "error kind 1")]
-//                     Kind1,
-//                     #[msg(short = "error kind 2")]
-//                     Kind2
-//                 }
-//             }
-//             expands to {
-//                 const A: usize = 4;
-//             }
-//         }
-//     }
-// }

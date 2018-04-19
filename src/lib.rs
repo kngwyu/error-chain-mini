@@ -68,6 +68,9 @@ pub trait ErrorKind {
     fn detailed(&self) -> String {
         String::new()
     }
+    fn err_msg(&self) -> String {
+        format!("{} {}", self.short(), self.detailed())
+    }
     fn into_err(self) -> ChainedError<Self>
     where
         Self: Sized,
