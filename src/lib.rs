@@ -21,7 +21,7 @@
 //!     Err(MyErrorKind::TrivialError.into_with("Oh my god!"))
 //! }
 //! fn main() {
-//!     assert_eq!("index error invalid index: 10", MyErrorKind::IndexEroor(10).full());
+//!     assert_eq!("index error, invalid index: 10", MyErrorKind::IndexEroor(10).full());
 //!     let chained = always_fail().chain_err("Error in main()");
 //!     assert!(chained.is_err());
 //!     if let Err(chained) = chained {
@@ -89,8 +89,35 @@ pub trait ErrorKind {
     /// Return full error message as String.
     ///
     /// Do not overrride this method.
+    ///
+    /// If you want to implement `Display` for your error kind, this method is useful.
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # fn main() {
+    /// use error_chain_mini::*;
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// #[msg(short = "My Error", detailed = "value: {}", value)]
+    /// struct MyError {
+    ///     value: usize,
+    /// }
+    /// use std::fmt;
+    /// impl fmt::Display for MyError {
+    ///     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    ///         write!(f, "{}", self.full())
+    ///     }
+    /// }
+    /// assert_eq!(format!("{}", MyError {value: 320}), "My Error, value: 320");
+    /// # }
+    /// ```
     fn full(&self) -> String {
-        format!("{} {}", self.short(), self.detailed())
+        let detailed = self.detailed();
+        if detailed.is_empty() {
+            format!("{}", self.short())
+        } else {
+            format!("{}, {}", self.short(), self.detailed())
+        }
     }
 
     /// Get [ChainedError](struct.ChainedError.html) with no context.
@@ -151,7 +178,9 @@ pub trait ErrorKind {
 
 /// Error context type.
 ///
-/// Expected usage is use string as context, like
+/// Expected usage is use string as context.
+///
+/// See module level documentation for usage.
 pub trait ErrorContext: Sized {
     fn context(&self) -> &str;
 }
@@ -163,7 +192,8 @@ impl<S: AsRef<str>> ErrorContext for S {
 }
 
 /// Chainable error type.
-
+///
+/// See module level documentation for usage.
 pub struct ChainedError<T: ErrorKind> {
     pub kind: T,
     pub context: Vec<String>,
@@ -195,8 +225,13 @@ impl<T: ErrorKind> Error for ChainedError<T> {
 
 impl<T: ErrorKind> Display for ChainedError<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        writeln!(f, "###ChainedError: ")?;
-        writeln!(f, "kind: {} {}", self.kind.short(), self.kind.detailed())?;
+        writeln!(f, "###ChainedError:")?;
+        write!(f, "kind: {}", self.kind.short())?;
+        let detailed = self.kind.detailed();
+        if !detailed.is_empty() {
+            write!(f, ", {}", detailed)?;
+        }
+        writeln!(f, "")?;
         for (i, s) in self.context.iter().enumerate() {
             writeln!(f, "context{:3}: {}", i, s)?;
         }
@@ -205,6 +240,9 @@ impl<T: ErrorKind> Display for ChainedError<T> {
 }
 
 impl<T: ErrorKind> ChainedError<T> {
+    /// Add context to ChainedError.
+    ///
+    /// It's more useful to use [chain_err](trait.ResultExt.html#tymethod.chain_err).
     pub fn chain<C: ErrorContext>(mut self, s: C) -> Self {
         let s = s.context().to_owned();
         self.context.push(s);
@@ -212,14 +250,67 @@ impl<T: ErrorKind> ChainedError<T> {
     }
 }
 
+/// `Result` extension to integrate with `ChainedError`
 pub trait ResultExt {
     type OkType;
     type ErrType;
+    /// Takes Result and add context, if self is Err.
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # fn main() {
+    /// use error_chain_mini::*;
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// #[msg(short = "My Error")]
+    /// struct MyError;
+    /// fn my_func() -> Result<!, ChainedError<MyError>>{
+    ///     let chained = MyError{}.into_with("Error in my_func");
+    ///     Err(chained)
+    /// }
+    /// let chained = my_func().chain_err("Chained");
+    /// assert!(chained.is_err());
+    /// if let Err(e) = chained {
+    ///     let msg = format!("{}", e);
+    ///     assert_eq!(msg, r#"###ChainedError:
+    /// kind: My Error
+    /// context  0: Error in my_func
+    /// context  1: Chained
+    /// ####
+    /// "#);
+    /// }
+    /// # }
+    /// ```
     fn chain_err<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
     where
         K: ErrorKind,
         C: ErrorContext,
         Self::ErrType: Into<ChainedError<K>>;
+
+    /// Takes Result and context then convert its error type into `ChainedError` with given context.
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # fn main() {
+    /// use error_chain_mini::*;
+    /// use std::io;
+    /// use std::fs::File;
+    /// #[derive(Debug, ErrorKind)]
+    /// enum MyError {
+    ///     #[msg(short = "io error", detailed = "{:?}", _0)]
+    ///     Io(io::Error),
+    ///     #[msg(short = "misc")]
+    ///     Misc
+    /// }
+    /// impl From<io::Error> for MyError {
+    ///     fn from(e: io::Error) -> Self {
+    ///         MyError::Io(e)
+    ///     }
+    /// }
+    /// let file: Result<_, ChainedError<MyError>> = File::open("not_existing_file").into_chained("In io()");
+    /// # }
+    /// ```
     fn into_chained<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
     where
         K: ErrorKind + From<Self::ErrType>,
