@@ -1,4 +1,6 @@
 # error-chain-mini
+[![crates.io](http://meritbadge.herokuapp.com/error-chain-mini)](https://crates.io/crates/error-chain-mini)
+[![documentation](https://docs.rs/error-chain-mini/badge.svg)](https://docs.rs/error-chain-mini)
 [![Build Status](https://travis-ci.org/kngwyu/error-chain-mini.svg?branch=master)](https://travis-ci.org/kngwyu/error-chain-mini)
 
 
