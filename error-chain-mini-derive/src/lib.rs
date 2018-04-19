@@ -1,3 +1,5 @@
+//! derive for
+
 extern crate proc_macro;
 extern crate syn;
 #[macro_use]
@@ -62,7 +64,7 @@ fn process_detailed(variant: &synstructure::VariantInfo) -> Option<quote::Tokens
         unreachable!();
     };
     macro_rules! get_nth {
-        ($id: expr) => {{
+        ($id:expr) => {{
             let bi = variant.bindings().into_iter().nth($id);
             if let Some(bi) = bi {
                 bi.binding

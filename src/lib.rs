@@ -6,7 +6,7 @@
 //! extern crate error_chain_mini_derive;
 //! use std::io;
 //! use error_chain_mini::*;
-//! #[derive(Debug, ErrorKind)]
+//! #[derive(ErrorKind)]
 //! enum MyErrorKind {
 //!     #[msg(short = "io error", detailed = "inner: {:?}", _0)]
 //!     IoError(io::Error),
@@ -43,8 +43,8 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// ```
 /// # extern crate error_chain_mini; fn main() {
 /// use std::io;
-/// use error_chain_mini::ErrorKind;
-/// #[derive(Debug)]
+/// use std::fs::File;
+/// use error_chain_mini::{ErrorKind, ResultExt};
 /// enum MyErrorKind {
 ///     IoError(io::Error),
 ///     IndexEroor(usize),
@@ -57,16 +57,58 @@ use std::fmt::{self, Debug, Display, Formatter};
 ///         }
 ///     }
 /// }
+/// impl From<io::Error> for MyErrorKind {
+///     fn from(e: io::Error) -> Self {
+///         MyErrorKind::IoError(e)
+///     }
+/// }
+/// let file = File::open("not_existing_file").into_chained("In io()");
+/// assert!(file.is_err());
+/// if let Err(e) = file {
+///     if let MyErrorKind::IoError(ioerr) = e.kind {
+///         assert_eq!(format!("{}", ioerr), "No such file or directory (os error 2)");
+///     } else {
+///         panic!("error kind is incorrect");
+///     }
+///     assert_eq!(e.context, vec!["In io()".to_owned()])
+/// }
 /// # }
 /// ```
 pub trait ErrorKind {
+    /// Short description of error type, compatible with `std::error::Error::description`.
+    ///
+    /// To avoid duplication of implement same message, we have 2 message type short/detailed.
+    ///
+    /// Actually, `"{} {}", ErrorKind::short(), ErrorKind::detailed()"` is used for display
+    /// and you can also get full error message by `full` method.
     fn short(&self) -> &str;
+    /// Detailed description of error type.
     fn detailed(&self) -> String {
         String::new()
     }
+    /// Return full error message as String.
+    ///
+    /// Do not overrride this method.
     fn full(&self) -> String {
         format!("{} {}", self.short(), self.detailed())
     }
+
+    /// Get [ChainedError](struct.ChainedError.html) with no context.
+    ///
+    /// Do not overrride this method.
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*; fn main() {
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// #[msg(short = "My Error")]
+    /// struct MyError;
+    /// let chained = MyError{}.into_err();
+    /// assert_eq!(chained.kind, MyError {});
+    /// assert!(chained.context.is_empty());
+    /// # }
+    /// ```
     fn into_err(self) -> ChainedError<Self>
     where
         Self: Sized,
@@ -76,6 +118,25 @@ pub trait ErrorKind {
             context: vec![],
         }
     }
+
+    /// Get [ChainedError](struct.ChainedError.html) with a context.
+    ///
+    /// Do not overrride this method.
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*; fn main() {
+    /// fn my_func() {
+    ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    ///     #[msg(short = "My Error")]
+    ///     struct MyError;
+    ///     let chained = MyError{}.into_with("Error in my_func");
+    ///     assert_eq!(chained.kind, MyError {});
+    ///     assert_eq!(chained.context[0], "Error in my_func");
+    /// }
+    /// # }
+    /// ```
     fn into_with<C: ErrorContext>(self, cxt: C) -> ChainedError<Self>
     where
         Self: Sized,
@@ -120,13 +181,13 @@ impl<T: ErrorKind + Clone> Clone for ChainedError<T> {
 unsafe impl<T: ErrorKind + Sync> Sync for ChainedError<T> {}
 unsafe impl<T: ErrorKind + Send> Send for ChainedError<T> {}
 
-impl<T: ErrorKind + Debug> Debug for ChainedError<T> {
+impl<T: ErrorKind> Debug for ChainedError<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
-impl<T: ErrorKind + Debug> Error for ChainedError<T> {
+impl<T: ErrorKind> Error for ChainedError<T> {
     fn description(&self) -> &str {
         self.kind.short()
     }

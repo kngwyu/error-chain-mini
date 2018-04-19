@@ -1,6 +1,8 @@
 # error-chain-mini
+[![Build Status](https://travis-ci.org/kngwyu/error-chain-mini.svg?branch=master)](https://travis-ci.org/kngwyu/error-chain-mini)
 
-I think [error-chain]() is good, especially I love `chain_err` method.
+
+I think [error-chain](https://github.com/rust-lang-nursery/error-chain) is good, especially I love `chain_err` method.
 
 However, sometimes I feel it too complex.
 I don't want to generate `ResultExt` and `ChainedError` by macro. Isn't it confusing?
@@ -11,13 +13,13 @@ So, I made this tiny library, providing very straight forward implementation of
 In addition, You can use `derive` to implement your own `ErrorKind` type.
 
 # Example
-```
+```rust
 extern crate error_chain_mini;
 #[macro_use]
 extern crate error_chain_mini_derive;
 use std::io;
 use error_chain_mini::*;
-#[derive(Debug, ErrorKind)]
+#[derive(ErrorKind)]
 enum MyErrorKind {
     #[msg(short = "io error", detailed = "inner: {:?}", _0)]
     IoError(io::Error),
