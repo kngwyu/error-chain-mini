@@ -1,10 +1,8 @@
-extern crate synstructure;
 #[macro_use]
 extern crate error_chain_mini_derive;
 extern crate error_chain_mini;
 
 use error_chain_mini::*;
-
 #[test]
 fn short_enum() {
     #[derive(ErrorKind)]
