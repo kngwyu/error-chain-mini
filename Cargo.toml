@@ -2,6 +2,15 @@
 name = "error-chain-mini"
 version = "0.0.1"
 authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
+description = "error-chain for minimalist"
+keywords = ["error"]
+categories = ["rust-patterns"]
+repository = "https://github.com/kngwyu/error-chain-mini"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+
+[badges.travis-ci]
+repository = "kngwyu/error-chain-mini"
 
 [dev-dependencies.error-chain-mini-derive]
 path = "error-chain-mini-derive"
