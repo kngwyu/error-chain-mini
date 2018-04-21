@@ -1,6 +1,6 @@
 [package]
 name = "error-chain-mini"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
 description = "error-chain for minimalist"
 keywords = ["error"]
@@ -14,7 +14,7 @@ repository = "kngwyu/error-chain-mini"
 
 [dev-dependencies.error-chain-mini-derive]
 path = "error-chain-mini-derive"
-version = "0.0.1"
+version = "0.0.2"
 
 [workspace]
 members = ["error-chain-mini-derive"]
