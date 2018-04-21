@@ -225,7 +225,7 @@ impl<T: ErrorKind> Error for ChainedError<T> {
 
 impl<T: ErrorKind> Display for ChainedError<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        writeln!(f, "###ChainedError:")?;
+        writeln!(f, "--- ChainedError:")?;
         write!(f, "kind: {}", self.kind.short())?;
         let detailed = self.kind.detailed();
         if !detailed.is_empty() {
@@ -233,9 +233,12 @@ impl<T: ErrorKind> Display for ChainedError<T> {
         }
         writeln!(f, "")?;
         for (i, s) in self.context.iter().enumerate() {
-            writeln!(f, "context{:3}: {}", i, s)?;
+            if i != 0 {
+                writeln!(f, "")?;
+            }
+            write!(f, "context{:3}: {}", i, s)?;
         }
-        writeln!(f, "###")
+        writeln!(f, " ---")
     }
 }
 
@@ -243,10 +246,65 @@ impl<T: ErrorKind> ChainedError<T> {
     /// Add context to ChainedError.
     ///
     /// It's more useful to use [chain_err](trait.ResultExt.html#tymethod.chain_err).
-    pub fn chain<C: ErrorContext>(mut self, s: C) -> Self {
-        let s = s.context().to_owned();
+    pub fn chain<C: ErrorContext>(mut self, c: C) -> Self {
+        let s = c.context().to_owned();
         self.context.push(s);
         self
+    }
+
+    /// Convert `ChainedError<T>` into `ChainedError<U>`.
+    ///
+    /// For some reason, we can't provide this type of conversion directly as a method of
+    /// `ResultExt`, so you have to use `map_err` explicitly.
+    /// # Usage
+    ///
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*;
+    /// mod external {
+    /// #    use super::*;
+    ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    ///     #[msg(short = "error in external")]
+    ///     pub struct ExtErrorKind;
+    ///     pub type Error = ChainedError<ExtErrorKind>;
+    ///     pub fn func() -> Result<!, Error> {
+    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///     }
+    /// }
+    /// # fn main() {
+    /// use external::{self, ExtErrorKind};
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// enum MyErrorKind {
+    ///     #[msg(short = "internal")]
+    ///     Internal,
+    ///     #[msg(short = "from mod 'external'", detailed = "{:?}", _0)]
+    ///     External(ExtErrorKind),
+    /// };
+    /// impl From<ExtErrorKind> for MyErrorKind {
+    ///     fn from(e: ExtErrorKind) -> MyErrorKind {
+    ///         MyErrorKind::External(e)
+    ///     }
+    /// }
+    /// type Error = ChainedError<MyErrorKind>;
+    /// let chained: Result<!, Error> = external::func().map_err(|e| e.convert("In my_func()"));
+    /// if let Err(chained) = chained {
+    ///     assert_eq!(chained.kind, MyErrorKind::External(ExtErrorKind {}));
+    ///     assert_eq!(chained.context[1], "In my_func()");
+    /// }
+    /// # }
+    /// ```
+    pub fn convert<U, C>(mut self, c: C) -> ChainedError<U>
+    where
+        U: ErrorKind + From<T>,
+        C: ErrorContext
+    {
+        let s = c.context().to_owned();
+        self.context.push(s);
+        ChainedError {
+            kind: U::from(self.kind),
+            context: self.context,
+        }
     }
 }
 
@@ -272,11 +330,10 @@ pub trait ResultExt {
     /// assert!(chained.is_err());
     /// if let Err(e) = chained {
     ///     let msg = format!("{}", e);
-    ///     assert_eq!(msg, r#"###ChainedError:
+    ///     assert_eq!(msg, r#"--- ChainedError:
     /// kind: My Error
     /// context  0: Error in my_func
-    /// context  1: Chained
-    /// ####
+    /// context  1: Chained ---
     /// "#);
     /// }
     /// # }
@@ -320,11 +377,11 @@ pub trait ResultExt {
 impl<T, E> ResultExt for Result<T, E> {
     type OkType = T;
     type ErrType = E;
-    fn chain_err<C, K>(self, context: C) -> Result<T, ChainedError<K>>
+    fn chain_err<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
     where
         K: ErrorKind,
         C: ErrorContext,
-        Self::ErrType: Into<ChainedError<K>>,
+        Self::ErrType: Into<ChainedError<K>>
     {
         self.map_err(|e| e.into().chain(context))
     }
