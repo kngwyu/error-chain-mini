@@ -21,18 +21,18 @@ extern crate error_chain_mini;
 extern crate error_chain_mini_derive;
 use std::io;
 use error_chain_mini::*;
+use std::error::Error;
 #[derive(ErrorKind)]
 enum MyErrorKind {
     #[msg(short = "io error", detailed = "inner: {:?}", _0)]
     IoError(io::Error),
     #[msg(short = "index error", detailed = "invalid index: {:?}", _0)]
     IndexEroor(usize),
-    #[msg(short = "trivial error")]
     TrivialError,
 }
 type MyError = ChainedError<MyErrorKind>;
 type MyResult<T> = Result<T, MyError>;
-fn always_fail() -> MyResult<!> {
+fn always_fail() -> MyResult<()> {
     Err(MyErrorKind::TrivialError.into_with("Oh my god!"))
 }
 fn main() {
@@ -40,6 +40,7 @@ fn main() {
     let chained = always_fail().chain_err("Error in main()");
     assert!(chained.is_err());
     if let Err(chained) = chained {
+        assert_eq!(chained.description(), "MyErrorKind::TrivialError");
         assert_eq!(chained.context[0], "Oh my god!");
         assert_eq!(chained.context[1], "Error in main()");
     }
