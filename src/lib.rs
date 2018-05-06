@@ -17,7 +17,7 @@
 //! }
 //! type MyError = ChainedError<MyErrorKind>;
 //! type MyResult<T> = Result<T, MyError>;
-//! fn always_fail() -> MyResult<!> {
+//! fn always_fail() -> MyResult<()> {
 //!     Err(MyErrorKind::TrivialError.into_with("Oh my god!"))
 //! }
 //! fn main() {
@@ -36,7 +36,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 /// Error kind type.
 ///
-/// You have to implement `short`, which is exepected to return short hand description about error kind.
+/// You can implement `short`, which is exepected to return short hand description about error kind.
 ///
 /// In addition, you can implement detailed description by `detailed`, but it's optional.
 /// # Example
@@ -44,6 +44,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// # extern crate error_chain_mini; fn main() {
 /// use std::io;
 /// use std::fs::File;
+/// use std::error::Error;
 /// use error_chain_mini::{ErrorKind, ResultExt};
 /// enum MyErrorKind {
 ///     IoError(io::Error),
@@ -65,6 +66,43 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// let file = File::open("not_existing_file").into_chained("In io()");
 /// assert!(file.is_err());
 /// if let Err(e) = file {
+///     assert_eq!(e.description(), "io error");
+///     if let MyErrorKind::IoError(ioerr) = e.kind {
+///         assert_eq!(format!("{}", ioerr), "No such file or directory (os error 2)");
+///     } else {
+///         panic!("error kind is incorrect");
+///     }
+///     assert_eq!(e.context, vec!["In io()".to_owned()])
+/// }
+/// # }
+/// ```
+///
+/// Instead of implement `ErrorKind`, you can use derive.
+/// In this case, if you don't write `#[msg..` attribute, full path of the variant
+/// (e.g. `MyErrorKind::IndexError`) is used for the return value of `short`.
+/// # Example
+/// ```
+/// # extern crate error_chain_mini;
+/// # #[macro_use] extern crate error_chain_mini_derive;
+/// # fn main() {
+/// use std::io;
+/// use std::fs::File;
+/// use std::error::Error;
+/// use error_chain_mini::{ErrorKind, ResultExt};
+/// #[derive(ErrorKind)]
+/// enum MyErrorKind {
+///     IoError(io::Error),
+///     IndexEroor(usize),
+/// }
+/// impl From<io::Error> for MyErrorKind {
+///     fn from(e: io::Error) -> Self {
+///         MyErrorKind::IoError(e)
+///     }
+/// }
+/// let file = File::open("not_existing_file").into_chained("In io()");
+/// assert!(file.is_err());
+/// if let Err(e) = file {
+///     assert_eq!(e.description(), "MyErrorKind::IoError");
 ///     if let MyErrorKind::IoError(ioerr) = e.kind {
 ///         assert_eq!(format!("{}", ioerr), "No such file or directory (os error 2)");
 ///     } else {
@@ -129,7 +167,6 @@ pub trait ErrorKind {
     /// # #[macro_use] extern crate error_chain_mini_derive;
     /// # use error_chain_mini::*; fn main() {
     /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
-    /// #[msg(short = "My Error")]
     /// struct MyError;
     /// let chained = MyError{}.into_err();
     /// assert_eq!(chained.kind, MyError {});
@@ -156,7 +193,6 @@ pub trait ErrorKind {
     /// # use error_chain_mini::*; fn main() {
     /// fn my_func() {
     ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
-    ///     #[msg(short = "My Error")]
     ///     struct MyError;
     ///     let chained = MyError{}.into_with("Error in my_func");
     ///     assert_eq!(chained.kind, MyError {});
@@ -268,7 +304,7 @@ impl<T: ErrorKind> ChainedError<T> {
     ///     #[msg(short = "error in external")]
     ///     pub struct ExtErrorKind;
     ///     pub type Error = ChainedError<ExtErrorKind>;
-    ///     pub fn func() -> Result<!, Error> {
+    ///     pub fn func() -> Result<(), Error> {
     ///         Err(ExtErrorKind{}.into_with("In external::func()"))
     ///     }
     /// }
@@ -276,7 +312,6 @@ impl<T: ErrorKind> ChainedError<T> {
     /// use external::{self, ExtErrorKind};
     /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
     /// enum MyErrorKind {
-    ///     #[msg(short = "internal")]
     ///     Internal,
     ///     #[msg(short = "from mod 'external'", detailed = "{:?}", _0)]
     ///     External(ExtErrorKind),
@@ -287,17 +322,17 @@ impl<T: ErrorKind> ChainedError<T> {
     ///     }
     /// }
     /// type Error = ChainedError<MyErrorKind>;
-    /// let chained: Result<!, Error> = external::func().map_err(|e| e.convert("In my_func()"));
+    /// let chained: Result<(), Error> = external::func().map_err(|e| e.convert("In my_func()"));
     /// if let Err(chained) = chained {
     ///     assert_eq!(chained.kind, MyErrorKind::External(ExtErrorKind {}));
     ///     assert_eq!(chained.context[1], "In my_func()");
     /// }
     /// # }
-    /// ```
+    /// ```    
     pub fn convert<U, C>(mut self, c: C) -> ChainedError<U>
     where
         U: ErrorKind + From<T>,
-        C: ErrorContext
+        C: ErrorContext,
     {
         let s = c.context().to_owned();
         self.context.push(s);
@@ -322,7 +357,7 @@ pub trait ResultExt {
     /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
     /// #[msg(short = "My Error")]
     /// struct MyError;
-    /// fn my_func() -> Result<!, ChainedError<MyError>>{
+    /// fn my_func() -> Result<(), ChainedError<MyError>>{
     ///     let chained = MyError{}.into_with("Error in my_func");
     ///     Err(chained)
     /// }
@@ -357,7 +392,6 @@ pub trait ResultExt {
     /// enum MyError {
     ///     #[msg(short = "io error", detailed = "{:?}", _0)]
     ///     Io(io::Error),
-    ///     #[msg(short = "misc")]
     ///     Misc
     /// }
     /// impl From<io::Error> for MyError {
@@ -381,7 +415,7 @@ impl<T, E> ResultExt for Result<T, E> {
     where
         K: ErrorKind,
         C: ErrorContext,
-        Self::ErrType: Into<ChainedError<K>>
+        Self::ErrType: Into<ChainedError<K>>,
     {
         self.map_err(|e| e.into().chain(context))
     }
