@@ -1,6 +1,6 @@
 [package]
 name = "error-chain-mini-derive"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
 description = "derives for error-chain-mini"
 license = "MIT/Apache-2.0"
@@ -9,8 +9,8 @@ keywords = ["error", "derive"]
 categories = ["rust-patterns"]
 
 [dependencies]
-syn = "0.13.1"
-quote = "0.5.1"
+syn = "0.13.7"
+quote = "0.5.2"
 synstructure = "0.8.1"
 
 [lib]
