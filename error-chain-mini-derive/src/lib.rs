@@ -11,19 +11,28 @@ decl_derive!([ErrorKind, attributes(msg)] => error_kind_derive);
 
 fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
     let short_body = s.each_variant(|v| {
-        let msg = find_msg(&v.ast().attrs).expect("All variants must have #[msg(.. attiribute.");
-        let metas = msg.nested;
-        if metas.is_empty() {
-            panic!("You have to implement `#[msg(short = \"your description\")]`");
-        }
-        let mut filterd = metas.iter().filter_map(process_short);
-        if let Some(tokens) = filterd.next() {
-            if filterd.next().is_some() {
-                panic!("Cannot implment short=.. multiple times");
+        if let Some(msg) = find_msg(&v.ast().attrs) {
+            let metas = msg.nested;
+            if metas.is_empty() {
+                panic!("You have to implement `#[msg(short = \"your description\")]`");
             }
-            tokens
+            let mut filterd = metas.iter().filter_map(process_short);
+            if let Some(tokens) = filterd.next() {
+                if filterd.next().is_some() {
+                    panic!("Cannot implment short=.. multiple times");
+                }
+                tokens
+            } else {
+                panic!("You have to implement `short = ..` attribute")
+            }
         } else {
-            panic!("You have to implement `short = ..` attribute")
+            let par_name = s.ast().ident.as_ref();
+            let variant_name = v.ast().ident.as_ref();
+            if par_name != variant_name {
+                quote!(concat!(#par_name, "::", #variant_name))
+            } else {
+                quote!(#par_name)
+            }
         }
     });
     let detailed_body = s.each_variant(|v| {
@@ -47,7 +56,7 @@ fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
 }
 
 fn process_detailed(variant: &synstructure::VariantInfo) -> Option<quote::Tokens> {
-    let msg = find_msg(&variant.ast().attrs).unwrap();
+    let msg = find_msg(&variant.ast().attrs)?;
     let nested = msg.nested;
     let mut iter = nested.iter().skip_while(|nested| match nested {
         syn::NestedMeta::Meta(syn::Meta::NameValue(nameval)) => nameval.ident != "detailed",
@@ -139,7 +148,7 @@ fn find_msg(attrs: &[syn::Attribute]) -> Option<syn::MetaList> {
         if let Some(syn::Meta::List(list)) = meta {
             if list.ident == "msg" {
                 if res.is_some() {
-                    panic!("Cannot have multiple `cause` attributes");
+                    panic!("Cannot have multiple `msg` attributes");
                 }
                 res = Some(list);
             }

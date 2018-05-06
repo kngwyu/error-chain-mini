@@ -17,6 +17,17 @@ fn short_enum() {
 }
 
 #[test]
+fn nomsg_enum() {
+    #[derive(ErrorKind)]
+    enum MyError {
+        Kind1,
+        Kind2,
+    }
+    assert_eq!(MyError::Kind1.short(), "MyError::Kind1");
+    assert_eq!(MyError::Kind2.short(), "MyError::Kind2");
+}
+
+#[test]
 fn detailed_enum_1() {
     #[derive(ErrorKind)]
     enum MyError {
@@ -72,7 +83,14 @@ fn short_struct() {
 #[test]
 fn detailed_struct() {
     #[derive(ErrorKind)]
-    #[msg(short = "My Error")]
+    #[msg(short = "My Error", detailed = "{}", _0)]
+    struct MyError(usize);
+    assert_eq!(MyError(5).full(), "My Error, 5");
+}
+
+#[test]
+fn nomsg_struct() {
+    #[derive(ErrorKind)]
     struct MyError;
-    assert_eq!(MyError {}.short(), "My Error");
+    assert_eq!(MyError {}.short(), "MyError");
 }
