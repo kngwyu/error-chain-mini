@@ -30,6 +30,8 @@
 //!     }
 //! }
 //! ```
+#![cfg_attr(test, feature(test, plugin))]
+#![cfg_attr(test, plugin(clippy))]
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -152,7 +154,7 @@ pub trait ErrorKind {
     fn full(&self) -> String {
         let detailed = self.detailed();
         if detailed.is_empty() {
-            format!("{}", self.short())
+            self.short().to_string()
         } else {
             format!("{}, {}", self.short(), self.detailed())
         }
@@ -267,10 +269,10 @@ impl<T: ErrorKind> Display for ChainedError<T> {
         if !detailed.is_empty() {
             write!(f, ", {}", detailed)?;
         }
-        writeln!(f, "")?;
+        writeln!(f)?;
         for (i, s) in self.context.iter().enumerate() {
             if i != 0 {
-                writeln!(f, "")?;
+                writeln!(f)?;
             }
             write!(f, "context{:3}: {}", i, s)?;
         }
