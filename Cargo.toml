@@ -12,9 +12,6 @@ license = "MIT/Apache-2.0"
 [badges.travis-ci]
 repository = "kngwyu/error-chain-mini"
 
-[dev-dependencies]
-clippy = "*"
-
 [dev-dependencies.error-chain-mini-derive]
 path = "error-chain-mini-derive"
 version = "0.0.3"

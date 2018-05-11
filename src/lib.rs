@@ -30,8 +30,6 @@
 //!     }
 //! }
 //! ```
-#![cfg_attr(test, feature(test, plugin))]
-#![cfg_attr(test, plugin(clippy))]
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
