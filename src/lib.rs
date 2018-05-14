@@ -80,6 +80,9 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// Instead of implement `ErrorKind`, you can use derive.
 /// In this case, if you don't write `#[msg..` attribute, full path of the variant
 /// (e.g. `MyErrorKind::IndexError`) is used for the return value of `short`.
+///
+/// **Notes** If you derive `ErrorKind` `std::fmt::Display` is also derived for convinience.
+///
 /// # Example
 /// ```
 /// # extern crate error_chain_mini;
@@ -103,6 +106,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// assert!(file.is_err());
 /// if let Err(e) = file {
 ///     assert_eq!(e.description(), "MyErrorKind::IoError");
+///     assert_eq!(format!("{}", e.kind), "MyErrorKind::IoError");
 ///     if let MyErrorKind::IoError(ioerr) = e.kind {
 ///         assert_eq!(format!("{}", ioerr), "No such file or directory (os error 2)");
 ///     } else {
@@ -126,9 +130,7 @@ pub trait ErrorKind {
     }
     /// Return full error message as String.
     ///
-    /// Do not overrride this method.
-    ///
-    /// If you want to implement `Display` for your error kind, this method is useful.
+    /// **Notes** Do not overrride this method.
     /// # Usage
     /// ```
     /// # extern crate error_chain_mini;
@@ -140,13 +142,8 @@ pub trait ErrorKind {
     /// struct MyError {
     ///     value: usize,
     /// }
-    /// use std::fmt;
-    /// impl fmt::Display for MyError {
-    ///     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    ///         write!(f, "{}", self.full())
-    ///     }
-    /// }
-    /// assert_eq!(format!("{}", MyError {value: 320}), "My Error, value: 320");
+    /// let err = MyError { value: 320 };
+    /// assert_eq!(format!("{}", err), err.full());
     /// # }
     /// ```
     fn full(&self) -> String {

@@ -42,7 +42,7 @@ fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
             quote!(String::new())
         }
     });
-    s.bound_impl(
+    let mut res = s.bound_impl(
         quote!(::error_chain_mini::ErrorKind),
         quote! {
             fn short(&self) -> &str {
@@ -52,7 +52,17 @@ fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
                 match *self { #detailed_body }
             }
         },
-    )
+    );
+    let display = s.bound_impl(
+        quote!(::std::fmt::Display),
+        quote! {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                write!(f, "{}", self.full())
+            }
+        },
+    );
+    res.append_all(display);
+    res
 }
 
 fn process_detailed(variant: &synstructure::VariantInfo) -> Option<quote::Tokens> {
@@ -116,7 +126,7 @@ fn process_detailed(variant: &synstructure::VariantInfo) -> Option<quote::Tokens
                 );
             }
         }
-        _ => panic!("Invalid argument to fail attribute!"),
+        _ => panic!("Invalid argument to detailed=.."),
     });
     Some(quote!(format!(#s #(, #args)*)))
 }
