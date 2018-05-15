@@ -1,6 +1,6 @@
 [package]
 name = "error-chain-mini-derive"
-version = "0.0.4"
+version = "0.1.0"
 authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
 description = "derives for error-chain-mini"
 license = "MIT/Apache-2.0"
