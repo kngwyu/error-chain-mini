@@ -25,8 +25,9 @@
 //!     let chained = always_fail().chain_err("Error in main()");
 //!     assert!(chained.is_err());
 //!     if let Err(chained) = chained {
-//!         assert_eq!(chained.context[0], "Oh my god!");
-//!         assert_eq!(chained.context[1], "Error in main()");
+//!         let mut cxts = chained.contexts();
+//!         assert_eq!(cxts.next().unwrap(), "Oh my god!");
+//!         assert_eq!(cxts.next().unwrap(), "Error in main()");
 //!     }
 //! }
 //! ```
@@ -67,12 +68,12 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// assert!(file.is_err());
 /// if let Err(e) = file {
 ///     assert_eq!(e.description(), "io error");
-///     if let MyErrorKind::IoError(ioerr) = e.kind {
+///     if let MyErrorKind::IoError(ioerr) = e.kind() {
 ///         assert_eq!(format!("{}", ioerr), "No such file or directory (os error 2)");
 ///     } else {
 ///         panic!("error kind is incorrect");
 ///     }
-///     assert_eq!(e.context, vec!["In io()".to_owned()])
+///     assert_eq!(e.contexts().collect::<Vec<_>>(), vec!["In io()"])
 /// }
 /// # }
 /// ```
@@ -106,13 +107,13 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// assert!(file.is_err());
 /// if let Err(e) = file {
 ///     assert_eq!(e.description(), "MyErrorKind::IoError");
-///     assert_eq!(format!("{}", e.kind), "MyErrorKind::IoError");
-///     if let MyErrorKind::IoError(ioerr) = e.kind {
+///     assert_eq!(format!("{}", e.kind()), "MyErrorKind::IoError");
+///     if let MyErrorKind::IoError(ioerr) = e.kind() {
 ///         assert_eq!(format!("{}", ioerr), "No such file or directory (os error 2)");
 ///     } else {
 ///         panic!("error kind is incorrect");
 ///     }
-///     assert_eq!(e.context, vec!["In io()".to_owned()])
+///     assert_eq!(e.contexts().collect::<Vec<_>>(), vec!["In io()"])
 /// }
 /// # }
 /// ```
@@ -163,21 +164,17 @@ pub trait ErrorKind {
     /// # extern crate error_chain_mini;
     /// # #[macro_use] extern crate error_chain_mini_derive;
     /// # use error_chain_mini::*; fn main() {
-    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// #[derive(Clone, Copy, ErrorKind, Eq, PartialEq, Debug)]
     /// struct MyError;
     /// let chained = MyError{}.into_err();
-    /// assert_eq!(chained.kind, MyError {});
-    /// assert!(chained.context.is_empty());
+    /// assert_eq!(*chained.kind(), MyError {});
     /// # }
     /// ```
     fn into_err(self) -> ChainedError<Self>
     where
         Self: Sized,
     {
-        ChainedError {
-            kind: self,
-            context: vec![],
-        }
+        ChainedError::new(self, vec![])
     }
 
     /// Get [ChainedError](struct.ChainedError.html) with a context.
@@ -189,11 +186,11 @@ pub trait ErrorKind {
     /// # #[macro_use] extern crate error_chain_mini_derive;
     /// # use error_chain_mini::*; fn main() {
     /// fn my_func() {
-    ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    ///     #[derive(Clone, Copy, ErrorKind, Eq, PartialEq, Debug)]
     ///     struct MyError;
     ///     let chained = MyError{}.into_with("Error in my_func");
-    ///     assert_eq!(chained.kind, MyError {});
-    ///     assert_eq!(chained.context[0], "Error in my_func");
+    ///     assert_eq!(*chained.kind(), MyError {});
+    ///     assert_eq!(chained.contexts().nth(0).unwrap(), "Error in my_func");
     /// }
     /// # }
     /// ```
@@ -201,11 +198,7 @@ pub trait ErrorKind {
     where
         Self: Sized,
     {
-        let s = cxt.context().to_owned();
-        ChainedError {
-            kind: self,
-            context: vec![s],
-        }
+        ChainedError::new(self, vec![Box::new(cxt)])
     }
 }
 
@@ -214,11 +207,11 @@ pub trait ErrorKind {
 /// Expected usage is use string as context.
 ///
 /// See module level documentation for usage.
-pub trait ErrorContext: Sized {
+pub trait ErrorContext: 'static {
     fn context(&self) -> &str;
 }
 
-impl<S: AsRef<str>> ErrorContext for S {
+impl<S: 'static + AsRef<str>> ErrorContext for S {
     fn context(&self) -> &str {
         self.as_ref()
     }
@@ -228,21 +221,8 @@ impl<S: AsRef<str>> ErrorContext for S {
 ///
 /// See module level documentation for usage.
 pub struct ChainedError<T: ErrorKind> {
-    pub kind: T,
-    pub context: Vec<String>,
+    inner: Box<ErrorImpl<T>>,
 }
-
-impl<T: ErrorKind + Clone> Clone for ChainedError<T> {
-    fn clone(&self) -> Self {
-        ChainedError {
-            kind: self.kind.clone(),
-            context: self.context.clone(),
-        }
-    }
-}
-
-unsafe impl<T: ErrorKind + Sync> Sync for ChainedError<T> {}
-unsafe impl<T: ErrorKind + Send> Send for ChainedError<T> {}
 
 impl<T: ErrorKind> Debug for ChainedError<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -252,36 +232,88 @@ impl<T: ErrorKind> Debug for ChainedError<T> {
 
 impl<T: ErrorKind> Error for ChainedError<T> {
     fn description(&self) -> &str {
-        self.kind.short()
+        self.inner.kind.short()
     }
 }
 
 impl<T: ErrorKind> Display for ChainedError<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         writeln!(f, "--- ChainedError:")?;
-        write!(f, "kind: {}", self.kind.short())?;
-        let detailed = self.kind.detailed();
+        write!(f, "kind: {}", self.inner.kind.short())?;
+        let detailed = self.inner.kind.detailed();
         if !detailed.is_empty() {
             write!(f, ", {}", detailed)?;
         }
         writeln!(f)?;
-        for (i, s) in self.context.iter().enumerate() {
+        for (i, s) in self.inner.context.iter().enumerate() {
             if i != 0 {
                 writeln!(f)?;
             }
-            write!(f, "context{:3}: {}", i, s)?;
+            write!(f, "context{:3}: {}", i, s.context())?;
         }
         writeln!(f, " ---")
     }
 }
 
 impl<T: ErrorKind> ChainedError<T> {
+    /// Create new ChainedError.
+    pub fn new(kind: T, context: Vec<Box<ErrorContext>>) -> Self {
+        ChainedError {
+            inner: Box::new(ErrorImpl::new(kind, context)),
+        }
+    }
+
+    /// Returns a reference of Error Kind
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*;
+    /// # fn main() {
+    /// #[derive(Debug, ErrorKind, Eq, PartialEq)]
+    /// enum ErrorType {
+    ///     A,
+    ///     B,
+    ///     C
+    /// }
+    /// let chained = ErrorType::B.into_err();
+    /// assert_eq!(*chained.kind(), ErrorType::B);
+    /// # }
+    /// ```
+    pub fn kind(&self) -> &T {
+        &self.inner.kind
+    }
+
+    /// Returns a reference of Error Contexts
+    /// Returns a reference of Error Kind
+    /// # Usage
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*;
+    /// # fn main() {
+    /// #[derive(Debug, ErrorKind, Eq, PartialEq)]
+    /// enum ErrorType {
+    ///     A,
+    ///     B,
+    ///     C
+    /// }
+    /// let chained = ErrorType::B.into_with("Error is Caused!");
+    /// let chained = chained.chain("Error is Chained!");
+    /// let mut cxts = chained.contexts();
+    /// assert_eq!(cxts.next().unwrap(), "Error is Caused!");
+    /// assert_eq!(cxts.next().unwrap(), "Error is Chained!");
+    /// # }
+    /// ```
+    pub fn contexts(&self) -> impl Iterator<Item = &str> {
+        self.inner.context.iter().map(|cxt| cxt.context())
+    }
+
     /// Add context to ChainedError.
     ///
     /// It's more useful to use [chain_err](trait.ResultExt.html#tymethod.chain_err).
     pub fn chain<C: ErrorContext>(mut self, c: C) -> Self {
-        let s = c.context().to_owned();
-        self.context.push(s);
+        self.inner.context.push(Box::new(c));
         self
     }
 
@@ -321,8 +353,8 @@ impl<T: ErrorKind> ChainedError<T> {
     /// type Error = ChainedError<MyErrorKind>;
     /// let chained: Result<(), Error> = external::func().map_err(|e| e.convert("In my_func()"));
     /// if let Err(chained) = chained {
-    ///     assert_eq!(chained.kind, MyErrorKind::External(ExtErrorKind {}));
-    ///     assert_eq!(chained.context[1], "In my_func()");
+    ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
+    ///     assert_eq!(chained.contexts().nth(1).unwrap(), "In my_func()");
     /// }
     /// # }
     /// ```    
@@ -331,14 +363,32 @@ impl<T: ErrorKind> ChainedError<T> {
         U: ErrorKind + From<T>,
         C: ErrorContext,
     {
-        let s = c.context().to_owned();
-        self.context.push(s);
+        self.inner.context.push(Box::new(c));
         ChainedError {
-            kind: U::from(self.kind),
-            context: self.context,
+            inner: Box::new(self.inner.convert(U::from)),
         }
     }
 }
+
+struct ErrorImpl<T> {
+    kind: T,
+    context: Vec<Box<ErrorContext>>,
+}
+
+impl<T> ErrorImpl<T> {
+    fn new(kind: T, context: Vec<Box<ErrorContext>>) -> Self {
+        ErrorImpl { kind, context }
+    }
+    fn convert<F, U>(self, f: F) -> ErrorImpl<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        ErrorImpl::new(f(self.kind), self.context)
+    }
+}
+
+unsafe impl<T: ErrorKind + Sync> Sync for ErrorImpl<T> {}
+unsafe impl<T: ErrorKind + Send> Send for ErrorImpl<T> {}
 
 /// `Result` extension to integrate with `ChainedError`
 pub trait ResultExt {
@@ -467,10 +517,10 @@ mod test {
         let file = File::open("not_existing_file").into_chained("In io()");
         assert!(file.is_err());
         if let Err(e) = file {
-            if let MyErrorKind::Index(_) = e.kind {
+            if let MyErrorKind::Index(_) = e.kind() {
                 panic!("error kind is incorrect");
             }
-            assert_eq!(e.context, vec!["In io()".to_owned()])
+            assert_eq!(e.contexts().collect::<Vec<_>>(), vec!["In io()"])
         }
     }
     #[test]
@@ -479,13 +529,13 @@ mod test {
         let res = index_err(id).chain_err("In index()");
         assert!(res.is_err());
         if let Err(e) = res {
-            if let MyErrorKind::Index(u) = e.kind {
-                assert_eq!(u, id);
+            if let MyErrorKind::Index(u) = e.kind() {
+                assert_eq!(*u, id);
             } else {
                 panic!("error kind is incorrect");
             }
             assert_eq!(
-                e.context,
+                e.contexts().collect::<Vec<_>>(),
                 vec![
                     "Invalid access in index_err()".to_owned(),
                     "In index()".to_owned(),
