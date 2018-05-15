@@ -94,3 +94,24 @@ fn nomsg_struct() {
     struct MyError;
     assert_eq!(MyError {}.short(), "MyError");
 }
+
+#[test]
+fn display() {
+    #[derive(ErrorKind)]
+    enum MyError {
+        #[msg(short = "MyError1", detailed = "value: {}", _0)]
+        Kind1(usize),
+        #[msg(short = "MyError2")]
+        Kind2,
+    }
+    #[derive(ErrorKind)]
+    enum MyError2 {
+        #[msg(short = "MyError", detailed = "{}", _0)]
+        MyError(MyError),
+    }
+    let chained = MyError::Kind1(5).into_with("error 1 was caused");
+    let chained = chained
+        .convert_with(|e| MyError2::MyError(e))
+        .chain("error 2 was caused");
+    println!("{}", chained);
+}

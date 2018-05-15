@@ -243,7 +243,7 @@ impl<T: ErrorKind> Display for ChainedError<T> {
         write!(f, "\nkind: {}", self.inner.kind.short())?;
         let detailed = self.inner.kind.detailed();
         if !detailed.is_empty() {
-            write!(f, ", {}", detailed)?;
+            write!(f, ": [{}]", detailed)?;
         }
         writeln!(f)?;
         for (i, s) in self.inner.context.iter().enumerate() {
@@ -318,10 +318,8 @@ impl<T: ErrorKind> ChainedError<T> {
         self
     }
 
-    /// Convert `ChainedError<T>` into `ChainedError<U>`.
+    /// Convert `ChainedError<T>` into `ChainedError<U>` using `std::convert::from`.
     ///
-    /// For some reason, we can't provide this type of conversion directly as a method of
-    /// `ResultExt`, so you have to use `map_err` explicitly.
     /// # Usage
     ///
     /// ```
@@ -352,21 +350,67 @@ impl<T: ErrorKind> ChainedError<T> {
     ///     }
     /// }
     /// type Error = ChainedError<MyErrorKind>;
-    /// let chained: Result<(), Error> = external::func().map_err(|e| e.convert("In my_func()"));
+    /// let chained: Result<(), Error>
+    ///     = external::func().map_err(|e| e.convert().chain("In my_func()"));
     /// if let Err(chained) = chained {
     ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
     ///     assert_eq!(chained.contexts().nth(1).unwrap(), "In my_func()");
     /// }
     /// # }
     /// ```    
-    pub fn convert<U, C>(mut self, c: C) -> ChainedError<U>
+    pub fn convert<U>(self) -> ChainedError<U>
     where
         U: ErrorKind + From<T>,
-        C: ErrorContext,
     {
-        self.inner.context.push(Box::new(c));
         ChainedError {
             inner: Box::new(self.inner.convert(U::from)),
+        }
+    }
+
+    /// Convert `ChainedError<T>` into `ChainedError<U>` using closure.
+    ///
+    /// # Usage
+    ///
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*;
+    /// mod external {
+    /// #    use super::*;
+    ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    ///     #[msg(short = "error in external")]
+    ///     pub struct ExtErrorKind;
+    ///     pub type Error = ChainedError<ExtErrorKind>;
+    ///     pub fn func() -> Result<(), Error> {
+    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///     }
+    /// }
+    /// # fn main() {
+    /// use external::{self, ExtErrorKind};
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// enum MyErrorKind {
+    ///     Internal,
+    ///     #[msg(short = "from mod 'external'", detailed = "{:?}", _0)]
+    ///     External(ExtErrorKind),
+    /// };
+    /// type Error = ChainedError<MyErrorKind>;
+    /// let chained: Result<(), Error> = external::func().map_err(|e| {
+    ///         e.convert_with(|e| MyErrorKind::External(e))
+    ///          .chain("In my_func()")
+    ///    });
+    /// if let Err(chained) = chained {
+    ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
+    ///     assert_eq!(chained.contexts().nth(1).unwrap(), "In my_func()");
+    /// }
+    /// # }
+    /// ```
+    pub fn convert_with<U, F>(self, converter: F) -> ChainedError<U>
+    where
+        U: ErrorKind,
+        F: FnOnce(T) -> U,
+    {
+        ChainedError {
+            inner: Box::new(self.inner.convert(converter)),
         }
     }
 }
@@ -454,6 +498,91 @@ pub trait ResultExt {
     where
         K: ErrorKind + From<Self::ErrType>,
         C: ErrorContext;
+
+    /// Convert `Result<Ok, ChainedError<T>>` into `Result<Ok, ChainedError<U>>` using `std::convert::From`.
+    ///
+    /// # Usage
+    ///
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*;
+    /// mod external {
+    /// #    use super::*;
+    ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    ///     #[msg(short = "error in external")]
+    ///     pub struct ExtErrorKind;
+    ///     pub type Error = ChainedError<ExtErrorKind>;
+    ///     pub fn func() -> Result<(), Error> {
+    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///     }
+    /// }
+    /// # fn main() {
+    /// use external::{self, ExtErrorKind};
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// enum MyErrorKind {
+    ///     Internal,
+    ///     #[msg(short = "from mod 'external'", detailed = "{:?}", _0)]
+    ///     External(ExtErrorKind),
+    /// };
+    /// impl From<ExtErrorKind> for MyErrorKind {
+    ///     fn from(e: ExtErrorKind) -> MyErrorKind {
+    ///         MyErrorKind::External(e)
+    ///     }
+    /// }
+    /// type Error = ChainedError<MyErrorKind>;
+    /// let chained: Result<(), Error> = external::func().convert();
+    /// if let Err(chained) = chained {
+    ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
+    /// }
+    /// # }
+    /// ```
+    fn convert<K, U>(self) -> Result<Self::OkType, ChainedError<U>>
+    where
+        K: ErrorKind,
+        Self::ErrType: Into<ChainedError<K>>,
+        U: From<K> + ErrorKind;
+
+    /// Convert `Result<Ok, ChainedError<T>>` into `Result<Ok, ChainedError<U>>` using closure.
+    ///
+    /// # Usage
+    ///
+    /// ```
+    /// # extern crate error_chain_mini;
+    /// # #[macro_use] extern crate error_chain_mini_derive;
+    /// # use error_chain_mini::*;
+    /// mod external {
+    /// #    use super::*;
+    ///     #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    ///     #[msg(short = "error in external")]
+    ///     pub struct ExtErrorKind;
+    ///     pub type Error = ChainedError<ExtErrorKind>;
+    ///     pub fn func() -> Result<(), Error> {
+    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///     }
+    /// }
+    /// # fn main() {
+    /// use external::{self, ExtErrorKind};
+    /// #[derive(ErrorKind, Eq, PartialEq, Debug)]
+    /// enum MyErrorKind {
+    ///     Internal,
+    ///     #[msg(short = "from mod 'external'", detailed = "{:?}", _0)]
+    ///     External(ExtErrorKind),
+    /// };
+    /// type Error = ChainedError<MyErrorKind>;
+    /// let chained: Result<(), Error>
+    ///     = external::func().convert_with(|e| MyErrorKind::External(e));
+    /// if let Err(chained) = chained {
+    ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
+    /// }
+    /// # }
+    /// ```
+    fn convert_with<K, U, F>(self, converter: F) -> Result<Self::OkType, ChainedError<U>>
+    where
+        K: ErrorKind,
+        Self::ErrType: Into<ChainedError<K>>,
+        U: ErrorKind,
+        F: FnOnce(K) -> U;
 }
 
 impl<T, E> ResultExt for Result<T, E> {
@@ -473,6 +602,25 @@ impl<T, E> ResultExt for Result<T, E> {
         C: ErrorContext,
     {
         self.map_err(|e| K::from(e).into_with(context))
+    }
+
+    fn convert<K, U>(self) -> Result<Self::OkType, ChainedError<U>>
+    where
+        K: ErrorKind,
+        Self::ErrType: Into<ChainedError<K>>,
+        U: From<K> + ErrorKind,
+    {
+        self.map_err(|e| e.into().convert())
+    }
+
+    fn convert_with<K, U, F>(self, converter: F) -> Result<Self::OkType, ChainedError<U>>
+    where
+        K: ErrorKind,
+        Self::ErrType: Into<ChainedError<K>>,
+        U: ErrorKind,
+        F: FnOnce(K) -> U,
+    {
+        self.map_err(|e| e.into().convert_with(converter))
     }
 }
 
@@ -543,5 +691,12 @@ mod test {
                 ]
             );
         }
+    }
+    #[test]
+    #[should_panic]
+    fn display() {
+        let id = 8;
+        let res = index_err(id).chain_err("In index()");
+        res.unwrap();
     }
 }
