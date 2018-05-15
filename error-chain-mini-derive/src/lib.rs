@@ -35,8 +35,10 @@ fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
             }
         }
     });
+    let mut has_detailed = false;
     let detailed_body = s.each_variant(|v| {
         if let Some(t) = process_detailed(v) {
+            has_detailed = true;
             t
         } else {
             quote!(String::new())
@@ -53,11 +55,16 @@ fn error_kind_derive(s: synstructure::Structure) -> quote::Tokens {
             }
         },
     );
+    let display_body = if has_detailed {
+        quote!(write!(f, "{} {{ {} }}", self.short(), self.detailed()))
+    } else {
+        quote!(write!(f, "{}", self.short()))
+    };
     let display = s.bound_impl(
         quote!(::std::fmt::Display),
         quote! {
             fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                write!(f, "{}", self.full())
+                #display_body
             }
         },
     );
@@ -83,7 +90,7 @@ fn process_detailed(variant: &synstructure::VariantInfo) -> Option<quote::Tokens
         unreachable!();
     };
     macro_rules! get_nth {
-        ($id:expr) => {{
+        ($id: expr) => {{
             let bi = variant.bindings().into_iter().nth($id);
             if let Some(bi) = bi {
                 bi.binding

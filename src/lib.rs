@@ -21,7 +21,7 @@
 //!     Err(MyErrorKind::TrivialError.into_with("Oh my god!"))
 //! }
 //! fn main() {
-//!     assert_eq!("index error, invalid index: 10", MyErrorKind::IndexEroor(10).full());
+//!     assert_eq!("index error { invalid index: 10 }", MyErrorKind::IndexEroor(10).full());
 //!     let chained = always_fail().chain_err("Error in main()");
 //!     assert!(chained.is_err());
 //!     if let Err(chained) = chained {
@@ -124,7 +124,7 @@ pub trait ErrorKind {
     ///
     /// To avoid duplication of implement same message, we have 2 message type short/detailed.
     ///
-    /// Actually, `"{} {}", ErrorKind::short(), ErrorKind::detailed()"` is used for display
+    /// Actually, `"{}: {}", ErrorKind::short(), ErrorKind::detailed()"` is used for display
     /// and you can also get full error message by `full` method.
     fn short(&self) -> &str;
     /// Detailed description of error type.
@@ -154,7 +154,7 @@ pub trait ErrorKind {
         if detailed.is_empty() {
             self.short().to_string()
         } else {
-            format!("{}, {}", self.short(), self.detailed())
+            format!("{} {{ {} }}", self.short(), self.detailed())
         }
     }
 
@@ -243,7 +243,7 @@ impl<T: ErrorKind> Display for ChainedError<T> {
         write!(f, "\nkind: {}", self.inner.kind.short())?;
         let detailed = self.inner.kind.detailed();
         if !detailed.is_empty() {
-            write!(f, ": [{}]", detailed)?;
+            write!(f, " {{ {} }}", detailed)?;
         }
         writeln!(f)?;
         for (i, s) in self.inner.context.iter().enumerate() {
