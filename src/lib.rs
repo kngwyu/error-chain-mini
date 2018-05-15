@@ -82,7 +82,9 @@ use std::fmt::{self, Debug, Display, Formatter};
 /// In this case, if you don't write `#[msg..` attribute, full path of the variant
 /// (e.g. `MyErrorKind::IndexError`) is used for the return value of `short`.
 ///
-/// **Notes** If you derive `ErrorKind` `std::fmt::Display` is also derived for convinience.
+/// **Notes**
+/// If you derive `ErrorKind` for type A, `std::fmt::Display` is automatically implemented
+/// for convinience.
 ///
 /// # Example
 /// ```
@@ -238,8 +240,7 @@ impl<T: ErrorKind> Error for ChainedError<T> {
 
 impl<T: ErrorKind> Display for ChainedError<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        writeln!(f, "--- ChainedError:")?;
-        write!(f, "kind: {}", self.inner.kind.short())?;
+        write!(f, "\nkind: {}", self.inner.kind.short())?;
         let detailed = self.inner.kind.detailed();
         if !detailed.is_empty() {
             write!(f, ", {}", detailed)?;
@@ -251,7 +252,7 @@ impl<T: ErrorKind> Display for ChainedError<T> {
             }
             write!(f, "context{:3}: {}", i, s.context())?;
         }
-        writeln!(f, " ---")
+        writeln!(f)
     }
 }
 
@@ -412,10 +413,10 @@ pub trait ResultExt {
     /// assert!(chained.is_err());
     /// if let Err(e) = chained {
     ///     let msg = format!("{}", e);
-    ///     assert_eq!(msg, r#"--- ChainedError:
+    ///     assert_eq!(msg, r#"
     /// kind: My Error
     /// context  0: Error in my_func
-    /// context  1: Chained ---
+    /// context  1: Chained
     /// "#);
     /// }
     /// # }
