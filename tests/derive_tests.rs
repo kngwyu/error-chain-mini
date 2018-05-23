@@ -110,9 +110,9 @@ fn display() {
         #[msg(short = "MyError", detailed = "{}", _0)]
         MyError(MyError),
     }
-    let chained = MyError::Kind1(5).into_with("error 1 was caused");
+    let chained = MyError::Kind1(5).into_with(|| "error 1 was caused");
     let chained = chained
         .convert_with(|e| MyError2::MyError(e))
-        .chain("error 2 was caused");
+        .chain(|| "error 2 was caused");
     println!("{}", chained);
 }

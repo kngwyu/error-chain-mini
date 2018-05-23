@@ -18,11 +18,11 @@
 //! type MyError = ChainedError<MyErrorKind>;
 //! type MyResult<T> = Result<T, MyError>;
 //! fn always_fail() -> MyResult<()> {
-//!     Err(MyErrorKind::TrivialError.into_with("Oh my god!"))
+//!     Err(MyErrorKind::TrivialError.into_with(|| "Oh my god!"))
 //! }
 //! fn main() {
 //!     assert_eq!("index error { invalid index: 10 }", MyErrorKind::IndexEroor(10).full());
-//!     let chained = always_fail().chain_err("Error in main()");
+//!     let chained = always_fail().chain_err(|| "Error in main()");
 //!     assert!(chained.is_err());
 //!     if let Err(chained) = chained {
 //!         let mut cxts = chained.contexts();
@@ -64,7 +64,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 ///         MyErrorKind::IoError(e)
 ///     }
 /// }
-/// let file = File::open("not_existing_file").into_chained("In io()");
+/// let file = File::open("not_existing_file").into_chained(|| "In io()");
 /// assert!(file.is_err());
 /// if let Err(e) = file {
 ///     assert_eq!(e.description(), "io error");
@@ -105,7 +105,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 ///         MyErrorKind::IoError(e)
 ///     }
 /// }
-/// let file = File::open("not_existing_file").into_chained("In io()");
+/// let file = File::open("not_existing_file").into_chained(|| "In io()");
 /// assert!(file.is_err());
 /// if let Err(e) = file {
 ///     assert_eq!(e.description(), "MyErrorKind::IoError");
@@ -127,6 +127,7 @@ pub trait ErrorKind {
     /// Actually, `"{}: {}", ErrorKind::short(), ErrorKind::detailed()"` is used for display
     /// and you can also get full error message by `full` method.
     fn short(&self) -> &str;
+
     /// Detailed description of error type.
     fn detailed(&self) -> String {
         String::new()
@@ -190,17 +191,18 @@ pub trait ErrorKind {
     /// fn my_func() {
     ///     #[derive(Clone, Copy, ErrorKind, Eq, PartialEq, Debug)]
     ///     struct MyError;
-    ///     let chained = MyError{}.into_with("Error in my_func");
+    ///     let chained = MyError{}.into_with(|| "Error in my_func");
     ///     assert_eq!(*chained.kind(), MyError {});
     ///     assert_eq!(chained.contexts().nth(0).unwrap(), "Error in my_func");
     /// }
     /// # }
     /// ```
-    fn into_with<C: ErrorContext>(self, cxt: C) -> ChainedError<Self>
+    fn into_with<C: ErrorContext, F>(self, op: F) -> ChainedError<Self>
     where
+        F: FnOnce() -> C,
         Self: Sized,
     {
-        ChainedError::new(self, vec![Box::new(cxt)])
+        ChainedError::new(self, vec![Box::new(op())])
     }
 }
 
@@ -299,8 +301,8 @@ impl<T: ErrorKind> ChainedError<T> {
     ///     B,
     ///     C
     /// }
-    /// let chained = ErrorType::B.into_with("Error is Caused!");
-    /// let chained = chained.chain("Error is Chained!");
+    /// let chained = ErrorType::B.into_with(|| "Error is Caused!");
+    /// let chained = chained.chain(|| "Error is Chained!");
     /// let mut cxts = chained.contexts();
     /// assert_eq!(cxts.next().unwrap(), "Error is Caused!");
     /// assert_eq!(cxts.next().unwrap(), "Error is Chained!");
@@ -310,11 +312,15 @@ impl<T: ErrorKind> ChainedError<T> {
         self.inner.context.iter().map(|cxt| cxt.context())
     }
 
-    /// Add context to ChainedError.
+    /// Add context to ChainedError by closure.
     ///
     /// It's more useful to use [chain_err](trait.ResultExt.html#tymethod.chain_err).
-    pub fn chain<C: ErrorContext>(mut self, c: C) -> Self {
-        self.inner.context.push(Box::new(c));
+    pub fn chain<C, F>(mut self, op: F) -> Self
+    where
+        C: ErrorContext,
+        F: FnOnce() -> C,
+    {
+        self.inner.context.push(Box::new(op()));
         self
     }
 
@@ -333,7 +339,7 @@ impl<T: ErrorKind> ChainedError<T> {
     ///     pub struct ExtErrorKind;
     ///     pub type Error = ChainedError<ExtErrorKind>;
     ///     pub fn func() -> Result<(), Error> {
-    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///         Err(ExtErrorKind{}.into_with(|| "In external::func()"))
     ///     }
     /// }
     /// # fn main() {
@@ -351,7 +357,7 @@ impl<T: ErrorKind> ChainedError<T> {
     /// }
     /// type Error = ChainedError<MyErrorKind>;
     /// let chained: Result<(), Error>
-    ///     = external::func().map_err(|e| e.convert().chain("In my_func()"));
+    ///     = external::func().map_err(|e| e.convert().chain(|| "In my_func()"));
     /// if let Err(chained) = chained {
     ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
     ///     assert_eq!(chained.contexts().nth(1).unwrap(), "In my_func()");
@@ -382,7 +388,7 @@ impl<T: ErrorKind> ChainedError<T> {
     ///     pub struct ExtErrorKind;
     ///     pub type Error = ChainedError<ExtErrorKind>;
     ///     pub fn func() -> Result<(), Error> {
-    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///         Err(ExtErrorKind{}.into_with(|| "In external::func()"))
     ///     }
     /// }
     /// # fn main() {
@@ -396,7 +402,7 @@ impl<T: ErrorKind> ChainedError<T> {
     /// type Error = ChainedError<MyErrorKind>;
     /// let chained: Result<(), Error> = external::func().map_err(|e| {
     ///         e.convert_with(|e| MyErrorKind::External(e))
-    ///          .chain("In my_func()")
+    ///          .chain(|| "In my_func()")
     ///    });
     /// if let Err(chained) = chained {
     ///     assert_eq!(*chained.kind(), MyErrorKind::External(ExtErrorKind {}));
@@ -439,7 +445,9 @@ unsafe impl<T: ErrorKind + Send> Send for ErrorImpl<T> {}
 pub trait ResultExt {
     type OkType;
     type ErrType;
-    /// Takes Result and add context, if self is Err.
+    /// Almost same as `chain_err`, but takes closure.
+    /// If you want to do expensive operation like `format!` to generate error message,
+    /// use this method instead of `chain_err`.
     /// # Usage
     /// ```
     /// # extern crate error_chain_mini;
@@ -450,10 +458,10 @@ pub trait ResultExt {
     /// #[msg(short = "My Error")]
     /// struct MyError;
     /// fn my_func() -> Result<(), ChainedError<MyError>>{
-    ///     let chained = MyError{}.into_with("Error in my_func");
+    ///     let chained = MyError{}.into_with(|| "Error in my_func");
     ///     Err(chained)
     /// }
-    /// let chained = my_func().chain_err("Chained");
+    /// let chained = my_func().chain_err(|| "Chained");
     /// assert!(chained.is_err());
     /// if let Err(e) = chained {
     ///     let msg = format!("{}", e);
@@ -465,13 +473,14 @@ pub trait ResultExt {
     /// }
     /// # }
     /// ```
-    fn chain_err<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
+    fn chain_err<C, K, F>(self, op: F) -> Result<Self::OkType, ChainedError<K>>
     where
+        F: FnOnce() -> C,
         K: ErrorKind,
         C: ErrorContext,
         Self::ErrType: Into<ChainedError<K>>;
 
-    /// Takes Result and context then convert its error type into `ChainedError` with given context.
+    /// Takes Result and context then convert its error type into `ChainedError` with  context.
     /// # Usage
     /// ```
     /// # extern crate error_chain_mini;
@@ -491,11 +500,12 @@ pub trait ResultExt {
     ///         MyError::Io(e)
     ///     }
     /// }
-    /// let file: Result<_, ChainedError<MyError>> = File::open("not_existing_file").into_chained("In io()");
+    /// let file: Result<_, ChainedError<MyError>> = File::open("not_existing_file").into_chained(|| "In io()");
     /// # }
     /// ```
-    fn into_chained<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
+    fn into_chained<C, K, F>(self, op: F) -> Result<Self::OkType, ChainedError<K>>
     where
+        F: FnOnce() -> C,
         K: ErrorKind + From<Self::ErrType>,
         C: ErrorContext;
 
@@ -514,7 +524,7 @@ pub trait ResultExt {
     ///     pub struct ExtErrorKind;
     ///     pub type Error = ChainedError<ExtErrorKind>;
     ///     pub fn func() -> Result<(), Error> {
-    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///         Err(ExtErrorKind{}.into_with(|| "In external::func()"))
     ///     }
     /// }
     /// # fn main() {
@@ -558,7 +568,7 @@ pub trait ResultExt {
     ///     pub struct ExtErrorKind;
     ///     pub type Error = ChainedError<ExtErrorKind>;
     ///     pub fn func() -> Result<(), Error> {
-    ///         Err(ExtErrorKind{}.into_with("In external::func()"))
+    ///         Err(ExtErrorKind{}.into_with(|| "In external::func()"))
     ///     }
     /// }
     /// # fn main() {
@@ -588,20 +598,24 @@ pub trait ResultExt {
 impl<T, E> ResultExt for Result<T, E> {
     type OkType = T;
     type ErrType = E;
-    fn chain_err<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
+
+    fn chain_err<C, K, F>(self, op: F) -> Result<Self::OkType, ChainedError<K>>
     where
+        F: FnOnce() -> C,
         K: ErrorKind,
         C: ErrorContext,
         Self::ErrType: Into<ChainedError<K>>,
     {
-        self.map_err(|e| e.into().chain(context))
+        self.map_err(|e| e.into().chain(op))
     }
-    fn into_chained<C, K>(self, context: C) -> Result<Self::OkType, ChainedError<K>>
+
+    fn into_chained<C, K, F>(self, op: F) -> Result<Self::OkType, ChainedError<K>>
     where
+        F: FnOnce() -> C,
         K: ErrorKind + From<Self::ErrType>,
         C: ErrorContext,
     {
-        self.map_err(|e| K::from(e).into_with(context))
+        self.map_err(|e| K::from(e).into_with(op))
     }
 
     fn convert<K, U>(self) -> Result<Self::OkType, ChainedError<U>>
@@ -657,13 +671,13 @@ mod test {
         if let Some(u) = array.get(u) {
             Ok(*u)
         } else {
-            Err(MyErrorKind::Index(u).into_with("Invalid access in index_err()"))
+            Err(MyErrorKind::Index(u).into_with(|| "Invalid access in index_err()"))
         }
     }
     #[test]
     fn io() {
         use std::fs::File;
-        let file = File::open("not_existing_file").into_chained("In io()");
+        let file = File::open("not_existing_file").into_chained(|| "In io()");
         assert!(file.is_err());
         if let Err(e) = file {
             if let MyErrorKind::Index(_) = e.kind() {
@@ -675,7 +689,7 @@ mod test {
     #[test]
     fn index() {
         let id = 8;
-        let res = index_err(id).chain_err("In index()");
+        let res = index_err(id).chain_err(|| "In index()");
         assert!(res.is_err());
         if let Err(e) = res {
             if let MyErrorKind::Index(u) = e.kind() {
@@ -696,7 +710,7 @@ mod test {
     #[should_panic]
     fn display() {
         let id = 8;
-        let res = index_err(id).chain_err("In index()");
+        let res = index_err(id).chain_err(|| "In index()");
         res.unwrap();
     }
 }
